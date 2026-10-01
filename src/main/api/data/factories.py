@@ -1,11 +1,13 @@
-import re
-from dataclasses import dataclass, asdict
+import string
 from enum import Enum
 from faker import Faker
 
+from src.main.api.models.request_models import CreateUserRequest
 
 fake = Faker("en_US")
 fake_ru = Faker("ru_RU")
+
+ALNUM = string.ascii_letters + string.digits
 
 
 # ---------- Requirements ----------
@@ -35,9 +37,7 @@ class UsernameFactory:
     @staticmethod
     def valid(length: int | None = None) -> str:
         length = length or fake.random_int(Limits.USERNAME_MIN, Limits.USERNAME_MAX)
-        base = re.sub(r"[^A-Za-z0-9]", "", fake.unique.user_name())
-        base += fake.bothify("?#" * Limits.USERNAME_MAX)
-        return base[:length]
+        return fake.random_letter() + "".join(fake.random_choices(ALNUM, length=length - 1))
 
     @staticmethod
     def boundary_valid() -> list[str]:
@@ -48,8 +48,8 @@ class UsernameFactory:
     @staticmethod
     def invalid_cases() -> dict[str, str]:
         return {
-            "too_short":     UsernameFactory.valid(Limits.USERNAME_MAX)[: Limits.USERNAME_MIN - 1],
-            "too_long":      UsernameFactory.valid(Limits.USERNAME_MAX) + "x",
+            "too_short":     UsernameFactory.valid(Limits.USERNAME_MIN - 1),
+            "too_long":      UsernameFactory.valid(Limits.USERNAME_MAX + 1),
             "special_char":  UsernameFactory.valid(5) + "!",
             "cyrillic":      fake_ru.first_name()[:10],
             "with_space":    "ab cd",
@@ -105,17 +105,7 @@ Transfer = AmountFactory(Limits.TRANSFER_MIN, Limits.TRANSFER_MAX)
 Credit = AmountFactory(Limits.CREDIT_MIN, Limits.CREDIT_MAX)
 
 
-# ---------- Request model ----------
-@dataclass
-class CreateUserRequest:
-    username: str
-    password: str
-    role: str
-
-    def to_json(self) -> dict:
-        return asdict(self)
-
-
+# ---------- User ----------
 class UserFactory:
     @staticmethod
     def build(role: Role = Role.USER, **overrides) -> CreateUserRequest:
@@ -128,21 +118,3 @@ class UserFactory:
     @staticmethod
     def build_batch(n: int, role: Role = Role.USER) -> list[CreateUserRequest]:
         return [UserFactory.build(role) for _ in range(n)]
-
-
-if __name__ == "__main__":
-    print("== Пользователи ==")
-    print(UserFactory.build().to_json())
-    print(UserFactory.build(Role.CREDIT_SECRET).to_json())
-    print("override:", UserFactory.build(username="ab").to_json())
-
-    print("\n== Username: границы / негатив ==")
-    print(UsernameFactory.boundary_valid())
-    print(UsernameFactory.invalid_cases())
-
-    print("\n== Password: негатив ==")
-    print(PasswordFactory.invalid_cases())
-
-    for name, f in (("Deposit", Deposit), ("Transfer", Transfer), ("Credit", Credit)):
-        print(f"\n== {name} ==  valid={f.valid()}  "
-              f"boundary_ok={f.boundary_valid()}  boundary_bad={f.boundary_invalid()}")

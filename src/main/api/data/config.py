@@ -1,5 +1,6 @@
 import os
 
+
 BASE_URL = os.getenv("BASE_URL") or "http://localhost:4111/api"
 
 ADMIN_CREDS = {

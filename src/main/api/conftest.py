@@ -1,39 +1,52 @@
-import pytest
-import requests
-from src.main.api.data.config import BASE_URL, ADMIN_CREDS
+import warnings
 
-CREATE_URL = f"{BASE_URL}/admin/create"
-DELETE_URL = f"{BASE_URL}/admin/users/{{user_id}}"
+import pytest
+
+from src.main.api.clients.admin_client import AdminClient
+from src.main.api.clients.auth_client import AuthClient
+from src.main.api.data.config import ADMIN_CREDS
 
 
 @pytest.fixture(scope="session")
 def admin_token() -> str:
-    r = requests.post(f"{BASE_URL}/auth/token/login", json=ADMIN_CREDS)
+    """Логинимся админом один раз на всю сессию."""
+    r = AuthClient().login(**ADMIN_CREDS)
     assert r.status_code == 200, r.text
     return r.json()["token"]
 
 
-@pytest.fixture
-def admin_headers(admin_token) -> dict:
-    return {"Authorization": f"Bearer {admin_token}"}
+@pytest.fixture(scope="session")
+def admin_client(admin_token) -> AdminClient:
+    return AdminClient(token=admin_token)
 
 
 @pytest.fixture
-def create_user(admin_headers):
+def anonymous_client() -> AdminClient:
+    """Клиент без токена — для проверок авторизации."""
+    return AdminClient()
+
+
+@pytest.fixture
+def create_user(admin_client):
+    """Создаёт пользователей через API и удаляет их после теста.
+    Удаляются только реально созданные (ответ 200), даже если тест упал."""
     created_ids = []
 
-    def _create(body: dict, headers: dict | None = None) -> requests.Response:
-        r = requests.post(CREATE_URL, json=body,
-                          headers=admin_headers if headers is None else headers)
+    def _create(user, client: AdminClient | None = None):
+        r = (client or admin_client).create_user(user)
         if r.status_code == 200:
-            created_ids.append(r.json()["id"])
+            user_id = r.json().get("id")
+            if user_id is None:
+                warnings.warn(f"В ответе на создание нет поля id, удалить не получится: {r.text}")
+            else:
+                created_ids.append(user_id)
         return r
 
     yield _create
 
-    errors = []                               # teardown
+    errors = []
     for user_id in created_ids:
-        r = requests.delete(DELETE_URL.format(user_id=user_id), headers=admin_headers)
+        r = admin_client.delete_user(user_id)
         if r.status_code not in (200, 204):
             errors.append(f"{user_id}: {r.status_code} {r.text}")
-    assert not errors, f"Не удалось удалить: {errors}"
+    assert not errors, f"Не удалось удалить пользователей: {errors}"
